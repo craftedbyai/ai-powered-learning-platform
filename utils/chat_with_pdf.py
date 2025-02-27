@@ -10,10 +10,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import CrossEncoder
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-import pysqlite3
-import sys
-
-sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 
 # System prompt for the LLM
 system_prompt = """
