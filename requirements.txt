@@ -10,3 +10,4 @@ langchain-ollama
 langchain-google-genai
 google-generativeai
 reportlab
+pysqlite3-binary

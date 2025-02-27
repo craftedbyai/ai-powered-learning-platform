@@ -10,6 +10,11 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import CrossEncoder
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
+import pysqlite3
+import sys
+
+sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+
 # System prompt for the LLM
 system_prompt = """
 You are an AI assistant tasked with providing detailed answers based solely on the given context. Your goal is to analyze the information provided and formulate a comprehensive, well-structured response to the question.
