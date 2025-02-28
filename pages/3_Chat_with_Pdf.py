@@ -1,7 +1,7 @@
 import streamlit as st
 from utils.chat_with_pdf import (
-    add_to_vector_collection,
-    query_collection,
+    add_to_pinecone,
+    query_pinecone,
     process_document,
     call_llm,
     re_rank_cross_encoders,
@@ -11,7 +11,7 @@ from utils.chat_with_pdf import (
 
 
 def main():
-    st.title("Chat with PDF powered by Google Gemini")
+    st.title("Chat with PDF")
     st.write("Upload a PDF and ask questions about its content")
 
     setup_gemini()
@@ -32,7 +32,7 @@ def main():
             )
             all_splits = process_document(uploaded_file)
             if all_splits:
-                add_to_vector_collection(all_splits, normalize_uploaded_file_name)
+                add_to_pinecone(all_splits, normalize_uploaded_file_name)
                 st.success(
                     f"Document '{uploaded_file.name}' processed and added to the knowledge base!"
                 )
@@ -48,7 +48,12 @@ def main():
         else:
             with st.spinner("Generating answer..."):
                 try:
-                    results = query_collection(prompt)
+                    results = query_pinecone(
+                        prompt,
+                        uploaded_file.name.translate(
+                            str.maketrans({"-": "_", ".": "_", " ": "_"})
+                        ),
+                    )
                     if not results["documents"] or len(results["documents"][0]) == 0:
                         st.warning(
                             "No relevant information found. Please try a different question or upload a relevant document."

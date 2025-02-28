@@ -1,13 +1,14 @@
 import os
+import time
 import tempfile
 import streamlit as st
-import chromadb
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+
+from pinecone import Pinecone, ServerlessSpec
+from sentence_transformers import SentenceTransformer, CrossEncoder
 import google.generativeai as genai
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sentence_transformers import CrossEncoder
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 
@@ -42,6 +43,24 @@ def setup_gemini():
     return True
 
 
+# Setup Pinecone client
+def setup_pinecone():
+    api_key = st.secrets.get("PINECONE_API_KEY")
+
+    if not api_key:
+        st.error("Missing Pinecone API key in the Streamlit secrets. Please add it.")
+        st.stop()
+
+    try:
+        # Initialize Pinecone client with API key (new SDK style)
+        pinecone_client = Pinecone(api_key=api_key)
+        return pinecone_client
+    except Exception as e:
+        st.error(f"Error initializing Pinecone: {e}")
+        st.stop()
+        return None
+
+
 # Process PDF document using PyMuPDF
 def process_document(uploaded_file: UploadedFile) -> list[Document]:
     try:
@@ -63,83 +82,183 @@ def process_document(uploaded_file: UploadedFile) -> list[Document]:
         return []
 
 
-# Set up ChromaDB vector store with sentence transformers
-def get_vector_collection(force_reset=False) -> chromadb.Collection:
+# Add document chunks to Pinecone
+# Get or create Pinecone index
+def get_pinecone_index(force_reset=False):
     try:
-        # Ensure directory exists
-        os.makedirs("./demo-rag-chroma", exist_ok=True)
+        pinecone_client = setup_pinecone()
+        index_name = "rag-app"
+        embedding_dimension = 768  # Dimension for all-mpnet-base-v2 model
 
-        embedding_function = SentenceTransformerEmbeddingFunction(
-            model_name="all-mpnet-base-v2"
-        )
+        # List all indexes
+        indexes = pinecone_client.list_indexes()
+        index_names = [index.name for index in indexes]
 
-        # Create persistent client
-        chroma_client = chromadb.PersistentClient(path="./demo-rag-chroma")
+        # Check if index exists
+        index_exists = index_name in index_names
 
-        # Force deletion of collection if requested
-        if force_reset:
+        # Create index if it doesn't exist
+        if not index_exists:
             try:
-                chroma_client.delete_collection(name="rag_app")
-                st.info("Vector database has been reset for new document.")
+                st.info("Creating new Pinecone index...")
+                pinecone_client.create_index(
+                    name=index_name,
+                    dimension=embedding_dimension,
+                    metric="cosine",
+                    spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                )
+                # Wait for index to be initialized
+                ready = False
+                attempts = 0
+                while not ready and attempts < 10:
+                    time.sleep(5)  # Wait 5 seconds between checks
+                    try:
+                        index_info = pinecone_client.describe_index(index_name)
+                        if index_info.status.ready:
+                            ready = True
+                        else:
+                            attempts += 1
+                    except:
+                        attempts += 1
             except Exception as e:
-                # Collection might not exist, that's fine
-                pass
+                st.error(f"Error creating Pinecone index: {e}")
 
-        # Try to get or create collection
-        try:
-            collection = chroma_client.get_collection(
-                name="rag_app", embedding_function=embedding_function
-            )
-        except Exception:
-            # Create if it doesn't exist
-            collection = chroma_client.create_collection(
-                name="rag_app",
-                embedding_function=embedding_function,
-                metadata={"hnsw:space": "cosine"},
-            )
+        # Get index
+        index = pinecone_client.Index(index_name)
 
-        return collection
+        # If force reset and index exists, delete all vectors instead of deleting the index
+        # if force_reset and index_exists:
+        #     st.info("Resetting vector database for new document...")
+        #     try:
+        #         # Delete all vectors in the index by using a delete_all operation
+        #         index.delete(delete_all=True)
+        #         time.sleep(2)  # Allow time for deletion to complete
+        #     except Exception as e:
+        #         st.error(f"Error deleting vectors from index: {e}")
+
+        return index
+
     except Exception as e:
-        st.error(f"Error setting up vector collection: {e}")
+        st.error(f"Error setting up Pinecone index: {e}")
         raise
 
 
-# Add document chunks to vector store
-def add_to_vector_collection(all_splits: list[Document], file_name: str):
-    try:
-        # Get collection with force reset to clear previous data
-        collection = get_vector_collection(force_reset=True)
+# Initialize Sentence Transformer model
+@st.cache_resource
+def get_embedding_model():
+    return SentenceTransformer("all-mpnet-base-v2")
 
-        documents, metadatas, ids = [], [], []
-        for idx, split in enumerate(all_splits):
-            documents.append(split.page_content)
-            metadatas.append(split.metadata)
-            ids.append(f"{file_name}_{idx}")
+
+# Generate embeddings for text
+def generate_embeddings(texts):
+    model = get_embedding_model()
+    return model.encode(texts).tolist()
+
+
+# Add document chunks to Pinecone
+def add_to_pinecone(all_splits: list[Document], file_name: str):
+    try:
+        # Get index with force reset to clear previous data
+        index = get_pinecone_index(force_reset=True)
+
+        # Prepare data for batch upsert
+        batch_size = 100  # Reasonable batch size for Pinecone
+        total_chunks = len(all_splits)
 
         # Progress indicator
         progress_text = st.empty()
-        progress_text.write(f"Processing {len(documents)} document chunks...")
+        progress_text.write(f"Processing {total_chunks} document chunks...")
 
-        # Upsert to vector store
-        collection.upsert(
-            documents=documents,
-            metadatas=metadatas,
-            ids=ids,
-        )
-        progress_text.empty()
-        st.success(f"Successfully added {len(documents)} chunks to the vector store!")
+        try:
+            for i in range(0, total_chunks, batch_size):
+                # Get current batch
+                batch_splits = all_splits[i : min(i + batch_size, total_chunks)]
+
+                # Extract text for embeddings
+                texts = [split.page_content for split in batch_splits]
+
+                # Generate embeddings
+                embeddings = generate_embeddings(texts)
+
+                # Prepare vectors for upsert
+                vectors = []
+                for j, (split, embedding) in enumerate(zip(batch_splits, embeddings)):
+                    vector_id = f"{file_name}_{i+j}"
+                    # Create upsert record with proper format for Pinecone
+                    vectors.append(
+                        {
+                            "id": vector_id,
+                            "values": embedding,
+                            "metadata": {
+                                "text": split.page_content,
+                                "page": split.metadata.get("page", 0),
+                                "source": file_name,
+                            },
+                        }
+                    )
+
+                # Upsert to Pinecone - handle potential rate limits with retries
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        index.upsert(vectors=vectors)
+                        break
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            time.sleep(2**attempt)  # Exponential backoff
+                        else:
+                            raise e
+
+                progress_text.write(
+                    f"Processed {min(i+batch_size, total_chunks)}/{total_chunks} chunks..."
+                )
+
+            progress_text.empty()
+            st.success(f"Successfully added {total_chunks} chunks to the vector store!")
+
+        except Exception as e:
+            st.error(f"Error in Pinecone indexing process: {e}")
+
     except Exception as e:
-        st.error(f"Error adding documents to vector store: {e}")
+        st.error(f"Error setting up Pinecone for document upload: {e}")
 
 
-# Query the vector collection
-def query_collection(prompt: str, n_results: int = 10):
+# Query the Pinecone index
+def query_pinecone(prompt: str, pdf_name: str, n_results: int = 10):
     try:
-        collection = get_vector_collection()
-        results = collection.query(query_texts=[prompt], n_results=n_results)
-        return results
+        index = get_pinecone_index()
+
+        # Generate embedding for the query
+        query_embedding = generate_embeddings([prompt])[0]
+
+        # Query Pinecone
+        query_results = index.query(
+            vector=query_embedding,
+            top_k=n_results,
+            include_metadata=True,
+            filter={"source": {"$eq": pdf_name}},
+        )
+
+        # Format results similar to ChromaDB output for compatibility
+        documents = [match.metadata.get("text", "") for match in query_results.matches]
+        ids = [match.id for match in query_results.matches]
+        metadatas = [
+            {k: v for k, v in match.metadata.items() if k != "text"}
+            for match in query_results.matches
+        ]
+        distances = [
+            1 - match.score for match in query_results.matches
+        ]  # Convert cosine similarity to distance
+
+        return {
+            "documents": [documents],
+            "ids": [ids],
+            "metadatas": [metadatas],
+            "distances": [distances],
+        }
+
     except Exception as e:
-        st.error(f"Error querying vector store: {e}")
+        st.error(f"Error querying Pinecone: {e}")
         return {"documents": [], "ids": [], "metadatas": [], "distances": []}
 
 
@@ -223,7 +342,7 @@ def main():
 
             all_splits = process_document(uploaded_file)
             if all_splits:
-                add_to_vector_collection(all_splits, uploaded_file.name)
+                add_to_pinecone(all_splits, uploaded_file.name)
                 st.session_state.uploaded_files.append(uploaded_file.name)
                 st.success(
                     f"Document '{uploaded_file.name}' processed and added to the knowledge base!"
@@ -238,7 +357,7 @@ def main():
         else:
             with st.spinner("Searching for relevant information..."):
                 # Query vector store
-                results = query_collection(query)
+                results = query_pinecone(query)
                 if not results["documents"] or len(results["documents"][0]) == 0:
                     st.warning(
                         "No relevant information found. Please try a different question or upload a relevant document."
