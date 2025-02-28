@@ -10,3 +10,4 @@ langchain-google-genai
 google-generativeai
 reportlab
 pinecone
+PyMuPDF
