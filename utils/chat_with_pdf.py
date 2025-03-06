@@ -147,16 +147,6 @@ def get_pinecone_index(force_reset=False):
         # Get index
         index = pinecone_client.Index(index_name)
 
-        # If force reset and index exists, delete all vectors instead of deleting the index
-        # if force_reset and index_exists:
-        #     st.info("Resetting vector database for new document...")
-        #     try:
-        #         # Delete all vectors in the index by using a delete_all operation
-        #         index.delete(delete_all=True)
-        #         time.sleep(2)  # Allow time for deletion to complete
-        #     except Exception as e:
-        #         st.error(f"Error deleting vectors from index: {e}")
-
         return index
 
     except Exception as e:

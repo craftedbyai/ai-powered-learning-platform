@@ -80,11 +80,11 @@ def generate_quiz(topic, difficulty, num_questions=5):
 
         response_text = response.text.strip()
 
-        # Debug: Show the raw response text
-        st.write("Raw response from Gemini (first 300 chars):")
-        st.text(
-            response_text[:300] + "..." if len(response_text) > 300 else response_text
-        )
+        # # Debug: Show the raw response text
+        # st.write("Raw response from Gemini (first 300 chars):")
+        # st.text(
+        #     response_text[:300] + "..." if len(response_text) > 300 else response_text
+        # )
 
         # Find JSON content between brackets
         start_idx = response_text.find("[")
@@ -153,11 +153,11 @@ def generate_flashcards(topic, num_cards=10):
 
         response_text = response.text.strip()
 
-        # Debug: Show the raw response text
-        st.write("Raw response from Gemini (first 300 chars):")
-        st.text(
-            response_text[:300] + "..." if len(response_text) > 300 else response_text
-        )
+        # # Debug: Show the raw response text
+        # st.write("Raw response from Gemini (first 300 chars):")
+        # st.text(
+        #     response_text[:300] + "..." if len(response_text) > 300 else response_text
+        # )
 
         # Try direct JSON parsing first
         try:
@@ -381,21 +381,12 @@ with tab1:
             reset_quiz()
             st.rerun()
 
-        # Generate personalized AI feedback
-        # Generate personalized AI feedback
         with st.spinner("Analyzing your performance..."):
             personalized_feedback = generate_personalized_feedback(
                 st.session_state.quiz_data,
                 st.session_state.user_answers,
                 st.session_state.score,
             )
-
-        # Performance Chart
-        # performance_chart = create_performance_chart(
-        #     st.session_state.quiz_data,
-        #     st.session_state.user_answers
-        # )
-        # st.plotly_chart(performance_chart, use_container_width=True)
 
         # Personalized Feedback Section
         if personalized_feedback:
@@ -431,23 +422,6 @@ with tab1:
             *{personalized_feedback.get('motivational_message', 'Keep learning and improving!')}*
             """
             )
-
-            # PDF Download Option
-            # if st.button("Download Detailed Report (PDF)"):
-            # Create PDF
-            # pdf_bytes = create_pdf_report(
-            #     st.session_state.quiz_data,
-            #     st.session_state.user_answers,
-            #     st.session_state.score,
-            #     personalized_feedback
-            # )
-
-            # Create download link
-            # b64 = base64.b64encode(pdf_bytes).decode('utf-8')
-            # href = f'<a href="data:application/pdf;base64,{b64}" download="quiz_performance_report.pdf">Click here to download PDF</a>'
-            # st.markdown(href, unsafe_allow_html=True)
-
-        # Review incorrect answers
 
     else:
         # Display current question
