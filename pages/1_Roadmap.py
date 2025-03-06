@@ -160,30 +160,38 @@ def generate_pdf(roadmap_data: str) -> BytesIO:
         styles = getSampleStyleSheet()
         story = []
 
-        story.append(Paragraph(roadmap["title"], styles["h1"]))
+        # Add PDF metadata
+        title = roadmap["title"]
+
+        # Add content to the PDF
+        story.append(Paragraph(title, styles["Title"]))
         story.append(
-            Paragraph(f"Total Estimated Days: {roadmap['total_days']}", styles["h2"])
+            Paragraph(
+                f"Total Estimated Days: {roadmap['total_days']}", styles["Heading2"]
+            )
         )
         story.append(Spacer(1, 0.2 * inch))
 
         for milestone in roadmap["milestones"]:
-            story.append(Paragraph(milestone["title"], styles["h3"]))
+            story.append(Paragraph(milestone["title"], styles["Heading3"]))
             story.append(
-                Paragraph(f"Estimated Days: {milestone['days']}", styles["h4"])
+                Paragraph(f"Estimated Days: {milestone['days']}", styles["Heading4"])
             )
-            story.append(Paragraph(milestone["description"], styles["Normal"]))
-            story.append(Spacer(1, 0.1 * inch))  # Add space after each milestone
+            description = milestone["description"].replace("\n", "<br/>")
+            story.append(Paragraph(description, styles["Normal"]))
+            story.append(Spacer(1, 0.2 * inch))  # Add more space after each milestone
 
+        # Build the PDF
         doc.build(story)
-        buffer.seek(0)  # Reset the buffer's position to the beginning
+        buffer.seek(0)  # Reset buffer position
         return buffer
 
-    except json.JSONDecodeError as e:
-        st.error(f"Invalid JSON format: {e}")
-        return None
     except Exception as e:
         st.error(f"Error generating PDF: {e}")
-        return None
+        import traceback
+
+        st.error(traceback.format_exc())
+        return BytesIO()  # Return empty buffer on error
 
 
 def main():

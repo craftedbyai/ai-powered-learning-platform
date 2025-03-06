@@ -29,7 +29,6 @@ Format your response as follows:
 3. Use bullet points or numbered lists where appropriate to break down complex information.
 4. Ensure relevant, include any headings or subheadings to structure your response.
 5. Ensure proper grammar, punctuation, and spelling throughout your answer.
-Important: Base your entire response solely on the information provided in the context. Do not include any external knowledge or assumptions not present in the given text.
 """
 
 
@@ -65,13 +64,31 @@ def setup_pinecone():
 def process_document(uploaded_file: UploadedFile) -> list[Document]:
     try:
         with st.spinner("Processing document..."):
+            # Reset file pointer to the beginning
+            uploaded_file.seek(0)
+
+            # Create a temporary file
             temp_file = tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False)
-            temp_file.write(uploaded_file.read())
-            loader = PyMuPDFLoader(temp_file.name)
+            temp_file_path = temp_file.name
+
+            # Write content to the temporary file and close it properly
+            temp_file.write(uploaded_file.getvalue())
+            temp_file.flush()
+            temp_file.close()
+
+            # Log for debugging
+            file_size = os.path.getsize(temp_file_path)
+            st.info(f"Temporary file created: {temp_file_path} ({file_size} bytes)")
+
+            # Load the document
+            loader = PyMuPDFLoader(temp_file_path)
             docs = loader.load()
-            os.unlink(temp_file.name)
+
+            # Clean up temp file after loading
+            os.unlink(temp_file_path)
+
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=400,  # Smaller chunksize helps
+                chunk_size=400,
                 chunk_overlap=100,
                 separators=["\n\n", "\n", ".", "?", "!", " ", ""],
             )
@@ -79,6 +96,10 @@ def process_document(uploaded_file: UploadedFile) -> list[Document]:
             return splits
     except Exception as e:
         st.error(f"Error processing document: {e}")
+        # For debugging, print the full stack trace
+        import traceback
+
+        st.error(traceback.format_exc())
         return []
 
 

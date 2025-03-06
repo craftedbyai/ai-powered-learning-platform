@@ -4,6 +4,8 @@ import json
 import requests
 from datetime import datetime
 import google.generativeai as genai
+import base64
+import io
 
 # Initialize session state variables if they don't exist
 if "current_question" not in st.session_state:
@@ -228,6 +230,83 @@ def reset_flashcards():
     st.session_state.show_answer = False
 
 
+def generate_personalized_feedback(quiz_data, user_answers, score):
+    # Prepare a prompt for Gemini to generate personalized feedback
+    incorrect_questions = []
+    topic_difficulty = {}
+
+    for i, question in enumerate(quiz_data):
+        user_answer = user_answers.get(i, None)
+
+        # Track difficulty of incorrect questions
+        if user_answer != question["correct_answer"]:
+            incorrect_questions.append(
+                {
+                    "question": question["question"],
+                    "user_answer": user_answer,
+                    "correct_answer": question["correct_answer"],
+                    "explanation": question["explanation"],
+                }
+            )
+
+    # Construct a detailed prompt for feedback
+    prompt = f"""Provide a concise and practical learning assessment based on the following quiz performance:
+
+Total Questions: {len(quiz_data)}
+Correct Answers: {score}
+Incorrect Questions: {len(incorrect_questions)}
+
+Incorrect Questions Details:
+{json.dumps(incorrect_questions, indent=2)}
+
+Please generate a focused feedback report that includes:
+1. Brief performance summary
+2. Key areas of improvement
+3. 2-3 specific learning resources or study strategies (that can include books, youtube playlists, blogs, online courses, etc)
+4. A short, motivational message
+
+Format the response as a JSON with the following structure:
+{{
+    "overall_performance": "",
+    "improvement_areas": [],
+    "study_resources": [
+        {{
+            "topic": "",
+            "resource_name": "",
+            "resource_link": ""
+        }}
+    ],
+    "motivational_message": ""
+}}
+"""
+
+    try:
+        response = model.generate_content(prompt)
+
+        # Extract and parse the JSON response
+        response_text = response.text.strip()
+
+        # Find JSON content between brackets
+        start_idx = response_text.find("{")
+        end_idx = response_text.rfind("}") + 1
+
+        if start_idx != -1 and end_idx != -1:
+            json_content = response_text[start_idx:end_idx]
+            try:
+                feedback_data = json.loads(json_content)
+                return feedback_data
+            except json.JSONDecodeError as e:
+                st.error(f"Error parsing feedback JSON: {str(e)}")
+                return None
+        else:
+            st.error("Failed to extract JSON data from the feedback response.")
+            return None
+
+    except Exception as e:
+        st.error(f"Error generating personalized feedback: {str(e)}")
+        return None
+
+
 # Main app title
 st.title("Quiz and Flashcard Generator")
 
@@ -260,14 +339,15 @@ with tab1:
 
     elif st.session_state.questions_answered:
         # Show quiz results
+        total_questions = len(st.session_state.quiz_data)
+        score = st.session_state.score
+        progress = score / total_questions
+
         st.subheader("Quiz Results")
+        st.progress(progress)
         st.write(
             f"Your score: {st.session_state.score}/{len(st.session_state.quiz_data)}"
         )
-
-        # Display progress bar for score
-        progress = st.session_state.score / len(st.session_state.quiz_data)
-        st.progress(progress)
 
         # Display performance message
         if progress == 1.0:
@@ -280,9 +360,7 @@ with tab1:
             st.warning("Keep practicing! 💪")
         else:
             st.error("You might need to review this topic more. 📚")
-
-        # Review incorrect answers
-        st.subheader("Review")
+        st.subheader("Detailed Question Review")
 
         for i, question in enumerate(st.session_state.quiz_data):
             with st.expander(f"Question {i+1}: {question['question']}"):
@@ -302,6 +380,74 @@ with tab1:
         if st.button("Take Another Quiz"):
             reset_quiz()
             st.rerun()
+
+        # Generate personalized AI feedback
+        # Generate personalized AI feedback
+        with st.spinner("Analyzing your performance..."):
+            personalized_feedback = generate_personalized_feedback(
+                st.session_state.quiz_data,
+                st.session_state.user_answers,
+                st.session_state.score,
+            )
+
+        # Performance Chart
+        # performance_chart = create_performance_chart(
+        #     st.session_state.quiz_data,
+        #     st.session_state.user_answers
+        # )
+        # st.plotly_chart(performance_chart, use_container_width=True)
+
+        # Personalized Feedback Section
+        if personalized_feedback:
+            st.subheader("Personalized Insights")
+
+            # Performance Summary
+            st.markdown(
+                f"""
+            ### 📊 Performance Overview
+            {personalized_feedback.get('overall_performance', 'No summary available')}
+            """
+            )
+
+            # Areas for Improvement
+            st.markdown("### 🎯 Key Improvement Areas")
+            for area in personalized_feedback.get("improvement_areas", []):
+                st.markdown(f"- {area}")
+
+            # Study Resources
+            st.markdown("### 📚 Recommended Resources")
+            for resource in personalized_feedback.get("study_resources", []):
+                st.markdown(
+                    f"""
+                #### {resource.get('topic', 'Unknown Topic')}
+                - **Resource:** [{resource.get('resource_name', 'Link')}]({resource.get('resource_link', '#')})
+                """
+                )
+
+            # Motivational Message
+            st.markdown(
+                f"""
+            ### 💡 Motivation
+            *{personalized_feedback.get('motivational_message', 'Keep learning and improving!')}*
+            """
+            )
+
+            # PDF Download Option
+            # if st.button("Download Detailed Report (PDF)"):
+            # Create PDF
+            # pdf_bytes = create_pdf_report(
+            #     st.session_state.quiz_data,
+            #     st.session_state.user_answers,
+            #     st.session_state.score,
+            #     personalized_feedback
+            # )
+
+            # Create download link
+            # b64 = base64.b64encode(pdf_bytes).decode('utf-8')
+            # href = f'<a href="data:application/pdf;base64,{b64}" download="quiz_performance_report.pdf">Click here to download PDF</a>'
+            # st.markdown(href, unsafe_allow_html=True)
+
+        # Review incorrect answers
 
     else:
         # Display current question

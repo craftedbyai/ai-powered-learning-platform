@@ -25,17 +25,34 @@ def main():
     )
 
     if uploaded_file and process:
-
-        with st.spinner("Processing document..."):
-            normalize_uploaded_file_name = uploaded_file.name.translate(
-                str.maketrans({"-": "_", ".": "_", " ": "_"})
-            )
-            all_splits = process_document(uploaded_file)
-            if all_splits:
-                add_to_pinecone(all_splits, normalize_uploaded_file_name)
-                st.success(
-                    f"Document '{uploaded_file.name}' processed and added to the knowledge base!"
+        try:
+            with st.spinner("Processing document..."):
+                # Display some information about the file for debugging
+                st.info(
+                    f"File name: {uploaded_file.name}, Size: {uploaded_file.size} bytes"
                 )
+
+                # Normalize the filename for Pinecone
+                normalize_uploaded_file_name = uploaded_file.name.translate(
+                    str.maketrans({"-": "_", ".": "_", " ": "_"})
+                )
+
+                # Process the document
+                all_splits = process_document(uploaded_file)
+
+                if all_splits and len(all_splits) > 0:
+                    st.success(f"Document processed into {len(all_splits)} chunks")
+                    add_to_pinecone(all_splits, normalize_uploaded_file_name)
+                    st.success(
+                        f"Document '{uploaded_file.name}' processed and added to the knowledge base!"
+                    )
+                else:
+                    st.error("No content was extracted from the document")
+        except Exception as e:
+            st.error(f"Error during document processing: {e}")
+            import traceback
+
+            st.error(traceback.format_exc())
 
     prompt = st.text_area("**Ask a question related to your document:**")
     ask = st.button(
