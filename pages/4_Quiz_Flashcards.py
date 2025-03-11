@@ -672,9 +672,7 @@ def display_timer():
 
 
 # Main app layout with tabs for Quiz and Flashcards, each with topic/PDF options
-st.set_page_config(
-    page_title="Quiz & Flashcard Generator", page_icon="📚", layout="wide"
-)
+
 
 # Custom CSS for better styling
 st.markdown(
