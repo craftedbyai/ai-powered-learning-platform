@@ -1,3 +1,4 @@
 /demo-rag-chroma
 .streamlit
 __pycache__
+diagrams/

@@ -81,11 +81,11 @@ def main():
                             results["documents"][0], prompt
                         )
 
-                        with st.expander("Sources"):
-                            for idx, doc_id in enumerate(relevant_ids):
-                                st.write(
-                                    f"**Source {idx+1}:** Chunk from extracted text."
-                                )
+                        # with st.expander("Sources"):
+                        #     for idx, doc_id in enumerate(relevant_ids):
+                        #         st.write(
+                        #             f"**Source {idx+1}:** Chunk from extracted text with id {doc_id}."
+                        #         )
 
                         st.subheader("Answer:")
                         response_placeholder = st.empty()
